@@ -11,6 +11,7 @@ import tweepy
 from tweepy import OAuthHandler
 import pandas as pd
 import json as json
+from pathos.multiprocessing import ProcessingPool as Pool
 
 class twitter_stalker:
     
@@ -125,7 +126,7 @@ class twitter_stalker:
                 return self.get_max_df(df)
             return None
 
-    def get_people(self, link, handle):
+    def get_people(self, link):
         session = requests.Session()
         people_list = []
         browser = RoboBrowser(session=session, user_agent=random.choice(self.HEADERS_LIST), parser="lxml")
@@ -139,6 +140,7 @@ class twitter_stalker:
         except:
             pass
         return people_list
+
 
     def get_tweets(self, handle, max_position=None):
         session = requests.Session()
@@ -183,6 +185,37 @@ class twitter_stalker:
             people_list = self.duplicates(people_list)
 
         return(people_list)
+    
+    def multi_Non_Tweep_friends(self, handle):
+        min_position, links = self.get_tweets(handle)
+        print("Scraping last 100 days of activity")
+
+        while (True):
+            min_position1, links1 = self.get_tweets(handle, min_position)
+            links = links + links1
+            if (min_position1 == None):
+                break
+            min_position = min_position1
+
+        people_list = []
+
+        link = [x for x in links if handle in x ]
+        link = self.duplicates(link)
+
+        p = Pool(10)  # Pool tells how many at a time
+        with Pool(10) as p:
+            
+            records = list(tqdm(p.imap(self.get_people, link), total=len(link)))
+            p.terminate()
+            p.join()
+            p.close()
+            people_list = [item for sublist in records for item in sublist]
+            people_list = self.duplicates(people_list)
+        
+        people_list = [x for x in people_list if x != handle]
+
+        return(people_list)
+        
         
     def get_max_df(self, df):
         max = -1
@@ -231,6 +264,26 @@ class twitter_stalker:
                 break
         return locations
 
+    def multi_get_followers_location(self, followers_ids, amount=-1, workers=10): #takes list of screen names returns dict of location counts
+        locations = {}
+        if amount != -1:
+            followers_ids = random.sample(followers_ids, amount)
+        
+        p = Pool(workers)  # Pool tells how many at a time
+        records = p.map(self.get_loc, followers_ids)
+        p.terminate()
+        p.join()
+        print(records)
+        
+        for i in records:
+            if i not in locations:
+                locations[i] = 0
+            locations[i]  = locations[i] +1
+            
+        return locations
+    
+    
+    
     def process_dict(self, locations):
         s = pd.Series(locations, name='Counts')
         s.index.name = 'Locations'
